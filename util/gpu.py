@@ -1,5 +1,12 @@
-from torch.cuda import is_available
+import torch
 
 
-def get_device():
-    return 0 if is_available() else -1
+def get_device_config() -> dict:
+    """Return device string, torch dtype, and device_map for pipeline initialization."""
+    if torch.cuda.is_available():
+        return {"device": "cuda", "torch_dtype": torch.bfloat16, "device_map": "auto"}
+    return {"device": "cpu", "torch_dtype": torch.float32, "device_map": None}
+
+
+def get_device() -> int:
+    return 0 if torch.cuda.is_available() else -1

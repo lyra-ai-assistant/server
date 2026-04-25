@@ -1,10 +1,9 @@
 {
   "nodeEnv": "development",
   "lyraUrl": "YOUR_NGROK_URL",
-  "firebase": "YOUR_FIREBASE_DEPLOY",
   "ngrokPort": 3000,
   "host": "http://localhost",
   "apiPort": 4000,
-  "mode": 1,
-  "verbose": 0
+  "mode": "dev",
+  "verbose": "0"
 }

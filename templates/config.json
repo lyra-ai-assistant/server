@@ -1,7 +1,5 @@
 {
   "nodeEnv": "development",
-  "lyraUrl": "YOUR_NGROK_URL",
-  "ngrokPort": 3000,
   "host": "http://localhost",
   "apiPort": 4000,
   "mode": "dev",

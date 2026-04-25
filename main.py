@@ -1,3 +1,4 @@
+import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -5,6 +6,7 @@ from agents.AnalysisAgent import AnalysisAgent
 from agents.GenerationAgent import GenerationAgent
 from agents.DispatcherAgent import DispatcherAgent
 from context.manager import session_manager
+from memory.semantic import store_exchange, retrieve_relevant
 from util.base_models import TextRequest, ChatRequest, ChatResponse
 from util.formatting import to_html
 
@@ -26,7 +28,6 @@ dispatcher_agent = DispatcherAgent()
 async def generate_response(request: TextRequest):
     try:
         task = dispatcher_agent.route_request(request.text)
-
         if task == "análisis de sentimiento":
             response = analysis_agent.handle_request(request.text)
         elif task == "generación de texto":
@@ -36,9 +37,7 @@ async def generate_response(request: TextRequest):
                 status_code=400,
                 detail="No se encontró un agente adecuado para la tarea.",
             )
-
         return {"response": response}
-
     except HTTPException:
         raise
     except Exception as e:
@@ -49,8 +48,10 @@ async def generate_response(request: TextRequest):
 async def chat(request: ChatRequest):
     try:
         session_id, history = session_manager.get_or_create(request.session_id)
-        response_text = generation_agent.handle_request(request.text, history)
+        semantic_ctx = retrieve_relevant(request.text)
+        response_text = generation_agent.handle_request(request.text, history, semantic_ctx)
         session_manager.add_messages(session_id, request.text, response_text)
+        store_exchange(session_id, request.text, response_text, time.time())
         return ChatResponse(response=to_html(response_text), session_id=session_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

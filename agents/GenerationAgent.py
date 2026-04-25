@@ -33,6 +33,10 @@ class GenerationAgent:
             device_map=cfg["device_map"] if cfg["device_map"] else cfg["device"],
         )
 
+    def warmup(self) -> None:
+        """Run a minimal inference to pre-warm model caches before serving requests."""
+        self.pipe("Hi", max_new_tokens=1, do_sample=False)
+
     def handle_request(
         self,
         text: str,

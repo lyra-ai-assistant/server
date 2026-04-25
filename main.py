@@ -2,6 +2,7 @@ import asyncio
 import json
 import sys
 import time
+from contextlib import asynccontextmanager
 from threading import Thread
 
 from fastapi import FastAPI, HTTPException
@@ -16,7 +17,19 @@ from util.context_window import trim_history
 from util.formatting import to_html
 from tools.linux import disk_usage, memory_info, cpu_info
 
-app = FastAPI()
+generation_agent = GenerationAgent()
+_model_ready = False
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _model_ready
+    generation_agent.warmup()
+    _model_ready = True
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,8 +37,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-generation_agent = GenerationAgent()
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -87,6 +98,7 @@ async def health():
     return {
         "status": "ok",
         "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        "model_ready": _model_ready,
         "active_sessions": session_manager.active_count(),
         "disk": disk_usage(),
         "memory": memory_info() if is_linux else None,

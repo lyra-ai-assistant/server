@@ -15,6 +15,7 @@ from memory.semantic import store_exchange, retrieve_relevant
 from util.base_models import TextRequest, ChatRequest, ChatResponse, StreamRequest
 from util.context_window import trim_history
 from util.formatting import to_html
+from tools.linux import disk_usage, memory_info, cpu_info
 
 app = FastAPI()
 
@@ -101,3 +102,15 @@ async def chat_stream(request: StreamRequest):
 async def clear_chat(session_id: str):
     session_manager.clear(session_id)
     return {"message": "Session cleared"}
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        "active_sessions": session_manager.active_count(),
+        "memory": memory_info(),
+        "disk": disk_usage(),
+        "cpu": cpu_info(),
+    }

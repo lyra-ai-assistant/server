@@ -1,4 +1,6 @@
-from transformers import pipeline
+from threading import Thread
+from transformers import pipeline, TextIteratorStreamer
+from typing import Generator
 
 from util.gpu import get_device_config
 from util.formatting import clean_response
@@ -10,6 +12,14 @@ _BASE_SYSTEM_PROMPT = (
     "information, answer questions, and help with various Linux-related tasks. Keep "
     "responses concise for simple questions and detailed for complex ones. Use markdown "
     "for code blocks, JSON examples, and tables."
+)
+
+_GENERATION_KWARGS = dict(
+    max_new_tokens=1024,
+    do_sample=True,
+    temperature=0.7,
+    top_k=50,
+    top_p=0.95,
 )
 
 
@@ -29,25 +39,47 @@ class GenerationAgent:
         history: list | None = None,
         semantic_ctx: list[str] | None = None,
     ) -> str:
-        messages = self._build_messages(text, history, semantic_ctx)
-        prompt = self.pipe.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        output = self.pipe(
-            prompt,
-            max_new_tokens=1024,
-            do_sample=True,
-            temperature=0.7,
-            top_k=50,
-            top_p=0.95,
-        )
+        prompt = self._build_prompt(text, history, semantic_ctx)
+        output = self.pipe(prompt, **_GENERATION_KWARGS)
         raw: str = output[0]["generated_text"]
-        assistant_marker = "<|assistant|>"
-        if assistant_marker in raw:
-            raw = raw.split(assistant_marker)[-1]
-        return clean_response(raw)
+        return self._extract_reply(raw)
+
+    def stream_request(
+        self,
+        text: str,
+        history: list | None = None,
+        semantic_ctx: list[str] | None = None,
+    ) -> Generator[str, None, None]:
+        """Yield tokens one at a time as the model generates them."""
+        prompt = self._build_prompt(text, history, semantic_ctx)
+        streamer = TextIteratorStreamer(
+            self.pipe.tokenizer, skip_prompt=True, skip_special_tokens=True
+        )
+        device = next(self.pipe.model.parameters()).device
+        inputs = self.pipe.tokenizer(prompt, return_tensors="pt").to(device)
+
+        thread = Thread(
+            target=self.pipe.model.generate,
+            kwargs={**inputs, "streamer": streamer, **_GENERATION_KWARGS},
+            daemon=True,
+        )
+        thread.start()
+
+        for token in streamer:
+            yield token
 
     # -- private --
+
+    def _build_prompt(
+        self,
+        text: str,
+        history: list | None,
+        semantic_ctx: list[str] | None,
+    ) -> str:
+        messages = self._build_messages(text, history, semantic_ctx)
+        return self.pipe.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
 
     def _build_messages(
         self,
@@ -65,3 +97,9 @@ class GenerationAgent:
             messages.extend(history)
         messages.append({"role": "user", "content": text})
         return messages
+
+    def _extract_reply(self, raw: str) -> str:
+        marker = "<|assistant|>"
+        if marker in raw:
+            raw = raw.split(marker)[-1]
+        return clean_response(raw)

@@ -3,13 +3,15 @@ import time
 from threading import Lock
 from typing import Optional
 
+from db.connection import get_connection, init_db
+
 SESSION_TTL = 1800  # seconds of inactivity before a session expires
 
 
 class SessionManager:
     def __init__(self):
-        self._sessions: dict[str, dict] = {}
         self._lock = Lock()
+        init_db()
 
     def get_or_create(self, session_id: Optional[str]) -> tuple[str, list]:
         if session_id and self._is_valid(session_id):
@@ -18,38 +20,76 @@ class SessionManager:
         return new_id, []
 
     def add_messages(self, session_id: str, user_text: str, assistant_text: str):
+        now = time.time()
         with self._lock:
-            session = self._sessions.get(session_id)
-            if session:
-                session["history"].append({"role": "user", "content": user_text})
-                session["history"].append({"role": "assistant", "content": assistant_text})
-                session["last_active"] = time.time()
+            conn = get_connection()
+            conn.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+                (session_id, "user", user_text, now),
+            )
+            conn.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+                (session_id, "assistant", assistant_text, now),
+            )
+            conn.execute(
+                "UPDATE sessions SET last_active = ? WHERE id = ?",
+                (now, session_id),
+            )
+            conn.commit()
+            conn.close()
 
     def clear(self, session_id: str):
         with self._lock:
-            self._sessions.pop(session_id, None)
+            conn = get_connection()
+            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            conn.commit()
+            conn.close()
+
+    def active_count(self) -> int:
+        cutoff = time.time() - SESSION_TTL
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM sessions WHERE last_active > ?", (cutoff,)
+        ).fetchone()
+        conn.close()
+        return row[0]
 
     # -- private --
 
     def _create(self) -> str:
         session_id = str(uuid.uuid4())
+        now = time.time()
         with self._lock:
-            self._sessions[session_id] = {"history": [], "last_active": time.time()}
+            conn = get_connection()
+            conn.execute(
+                "INSERT INTO sessions (id, created_at, last_active) VALUES (?, ?, ?)",
+                (session_id, now, now),
+            )
+            conn.commit()
+            conn.close()
         return session_id
 
     def _is_valid(self, session_id: str) -> bool:
-        with self._lock:
-            session = self._sessions.get(session_id)
-            if not session:
-                return False
-            if time.time() - session["last_active"] > SESSION_TTL:
-                del self._sessions[session_id]
-                return False
-            return True
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT last_active FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return False
+        if time.time() - row["last_active"] > SESSION_TTL:
+            self.clear(session_id)
+            return False
+        return True
 
     def _get_history(self, session_id: str) -> list:
-        with self._lock:
-            return list(self._sessions[session_id]["history"])
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT role, content FROM messages WHERE session_id = ? ORDER BY timestamp",
+            (session_id,),
+        ).fetchall()
+        conn.close()
+        return [{"role": r["role"], "content": r["content"]} for r in rows]
 
 
 session_manager = SessionManager()

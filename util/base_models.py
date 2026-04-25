@@ -2,11 +2,6 @@ from pydantic import BaseModel
 from typing import Optional
 
 
-class TextRequest(BaseModel):
-    text: str
-    context: Optional[str] = None
-
-
 class ChatRequest(BaseModel):
     text: str
     session_id: Optional[str] = None

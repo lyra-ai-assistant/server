@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sys
 import time
 from threading import Thread
 
@@ -82,11 +83,12 @@ async def clear_chat(session_id: str):
 
 @app.get("/health")
 async def health():
+    is_linux = sys.platform == "linux"
     return {
         "status": "ok",
         "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
         "active_sessions": session_manager.active_count(),
-        "memory": memory_info(),
         "disk": disk_usage(),
-        "cpu": cpu_info(),
+        "memory": memory_info() if is_linux else None,
+        "cpu": cpu_info() if is_linux else None,
     }

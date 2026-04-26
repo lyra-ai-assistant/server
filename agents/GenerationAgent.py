@@ -1,3 +1,4 @@
+from pathlib import Path
 from threading import Thread
 from transformers import pipeline, TextIteratorStreamer
 from typing import Generator
@@ -6,13 +7,7 @@ from util.gpu import get_device_config
 from util.formatting import clean_response
 
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-
-_BASE_SYSTEM_PROMPT = (
-    "You are Lyra, a helpful GNU/Linux assistant. You provide accurate and relevant "
-    "information, answer questions, and help with various Linux-related tasks. Keep "
-    "responses concise for simple questions and detailed for complex ones. Use markdown "
-    "for code blocks, JSON examples, and tables."
-)
+_PROMPT_FILE = Path(__file__).parent.parent / "templates" / "system_prompt.txt"
 
 _GENERATION_KWARGS = dict(
     max_new_tokens=1024,
@@ -32,6 +27,7 @@ class GenerationAgent:
             torch_dtype=cfg["torch_dtype"],
             device_map=cfg["device_map"] if cfg["device_map"] else cfg["device"],
         )
+        self._system_prompt = _PROMPT_FILE.read_text(encoding="utf-8").strip()
 
     def warmup(self) -> None:
         """Run a minimal inference to pre-warm model caches before serving requests."""
@@ -91,7 +87,7 @@ class GenerationAgent:
         history: list | None,
         semantic_ctx: list[str] | None,
     ) -> list:
-        system = _BASE_SYSTEM_PROMPT
+        system = self._system_prompt
         if semantic_ctx:
             joined = "\n---\n".join(semantic_ctx)
             system += f"\n\nRelevant context from past conversations:\n{joined}"

@@ -1,23 +1,35 @@
 import asyncio
 import json
+import sys
 import time
+from contextlib import asynccontextmanager
 from threading import Thread
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from agents.AnalysisAgent import AnalysisAgent
 from agents.GenerationAgent import GenerationAgent
-from agents.DispatcherAgent import DispatcherAgent
 from context.manager import session_manager
 from memory.semantic import store_exchange, retrieve_relevant
-from util.base_models import TextRequest, ChatRequest, ChatResponse, StreamRequest
+from util.base_models import ChatRequest, ChatResponse, StreamRequest
 from util.context_window import trim_history
 from util.formatting import to_html
 from tools.linux import disk_usage, memory_info, cpu_info
 
-app = FastAPI()
+generation_agent = GenerationAgent()
+_model_ready = False
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _model_ready
+    generation_agent.warmup()
+    _model_ready = True
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,30 +37,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-analysis_agent = AnalysisAgent()
-generation_agent = GenerationAgent()
-dispatcher_agent = DispatcherAgent()
-
-
-@app.post("/")
-async def generate_response(request: TextRequest):
-    try:
-        task = dispatcher_agent.route_request(request.text)
-        if task == "análisis de sentimiento":
-            response = analysis_agent.handle_request(request.text)
-        elif task == "generación de texto":
-            response = generation_agent.handle_request(request.text)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="No se encontró un agente adecuado para la tarea.",
-            )
-        return {"response": response}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -106,11 +94,13 @@ async def clear_chat(session_id: str):
 
 @app.get("/health")
 async def health():
+    is_linux = sys.platform == "linux"
     return {
         "status": "ok",
         "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        "model_ready": _model_ready,
         "active_sessions": session_manager.active_count(),
-        "memory": memory_info(),
         "disk": disk_usage(),
-        "cpu": cpu_info(),
+        "memory": memory_info() if is_linux else None,
+        "cpu": cpu_info() if is_linux else None,
     }

@@ -38,8 +38,9 @@ class GenerationAgent:
         text: str,
         history: list | None = None,
         semantic_ctx: list[str] | None = None,
+        knowledge_ctx: list[str] | None = None,
     ) -> str:
-        prompt = self._build_prompt(text, history, semantic_ctx)
+        prompt = self._build_prompt(text, history, semantic_ctx, knowledge_ctx)
         output = self.pipe(prompt, **_GENERATION_KWARGS)
         raw: str = output[0]["generated_text"]
         return self._extract_reply(raw)
@@ -49,9 +50,9 @@ class GenerationAgent:
         text: str,
         history: list | None = None,
         semantic_ctx: list[str] | None = None,
+        knowledge_ctx: list[str] | None = None,
     ) -> Generator[str, None, None]:
-        """Yield tokens one at a time as the model generates them."""
-        prompt = self._build_prompt(text, history, semantic_ctx)
+        prompt = self._build_prompt(text, history, semantic_ctx, knowledge_ctx)
         streamer = TextIteratorStreamer(
             self.pipe.tokenizer, skip_prompt=True, skip_special_tokens=True
         )
@@ -75,8 +76,9 @@ class GenerationAgent:
         text: str,
         history: list | None,
         semantic_ctx: list[str] | None,
+        knowledge_ctx: list[str] | None,
     ) -> str:
-        messages = self._build_messages(text, history, semantic_ctx)
+        messages = self._build_messages(text, history, semantic_ctx, knowledge_ctx)
         return self.pipe.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
@@ -86,8 +88,12 @@ class GenerationAgent:
         text: str,
         history: list | None,
         semantic_ctx: list[str] | None,
+        knowledge_ctx: list[str] | None,
     ) -> list:
         system = self._system_prompt
+        if knowledge_ctx:
+            joined = "\n---\n".join(knowledge_ctx)
+            system += f"\n\nRelevant Ubuntu package information:\n{joined}"
         if semantic_ctx:
             joined = "\n---\n".join(semantic_ctx)
             system += f"\n\nRelevant context from past conversations:\n{joined}"
